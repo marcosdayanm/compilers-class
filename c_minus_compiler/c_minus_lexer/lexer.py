@@ -44,6 +44,8 @@ class Lexer:
         self.curr_line: int = 1
         self.curr_col: int = 1
         self.line_starts: list[int] = [0]
+
+        # This dictionary maps each final state to its corresponding handler method, which will be called with the appropriate context when that final state is reached. This allows us to keep the DFA scanning loop clean and separate from the specific actions taken for each token type or error case.
         self._final_state_handlers: dict[LexerState, Callable[[FinalContext], ScanResult]] = {
             LexerState.FINAL_ID: self._handle_id_reserved,
             LexerState.FINAL_INT: self._handle_int,
@@ -74,6 +76,7 @@ class Lexer:
                 return tokens
 
     def _reset(self, prog: str, pos: int, long: int) -> None:
+        """Reset the lexer state with a new program and position. This is used by the globales() function to reinitialize the lexer for each test case."""
         self.program = prog
         self.position = pos
         self.prog_len = long
@@ -95,15 +98,18 @@ class Lexer:
             return result.token, result.lexeme
 
     def _reserved_lookup(self, token_string: str) -> TokenType:
+        """Return a reserved word token type if the given string is a reserved word, or ID otherwise."""
         return RESERVED_LOOKUP.get(token_string, TokenType.ID)
 
     def _peek(self, offset: int = 0) -> str:
+        """Check a specific character on the program, based on the current position. It is possible to add an offset"""
         index = self.position + offset
         if index >= len(self.program):
             return "$"
         return self.program[index]
 
     def _advance(self) -> str:
+        """This method will advance the program pointer by one position, and update the line and column counters accordingly."""
         char = self._peek(0)
         if char == "$":
             return char
@@ -117,6 +123,7 @@ class Lexer:
         return char
 
     def _line_slice(self, line_number: int) -> str:
+        """THis method will return the source code of a specific line, given its line number. It uses the line_starts list to find the start and end indices of the line in the program string."""
         start = self.line_starts[line_number - 1]
         if line_number < len(self.line_starts):
             end = self.line_starts[line_number] - 1
@@ -125,7 +132,7 @@ class Lexer:
         return self.program[start:end]
 
     def _print_error(self, message: str, line_number: int, column_number: int) -> None:
-        # Rebuild the source line and point to the exact column that triggered the error.
+        """Print an error message with the line and column number, and show the source line with a pointer to the error position."""
         source_line = self._line_slice(line_number)
         pointer = " " * max(column_number - 1, 0) + "^"
         print(f"Line {line_number}: {message}")
@@ -133,6 +140,7 @@ class Lexer:
         print(pointer)
 
     def _classify_char(self, char: str) -> InputSymbol:
+        """This method will allow us to ge the InputSYmbol that we'll be using as key on the lexer transition table"""
         if char in LETTER_CHARS:
             return InputSymbol.LETTER
         if char in DIGIT_CHARS:
@@ -261,7 +269,7 @@ def globales(prog: str, pos: int, long: int) -> None:
 
 
 def getToken(imprime: bool = True) -> tuple[TokenType, str]:
-    # Using lexer singleton instance private _get_token method (for the full project we will be using Lexer.tokenize_all() instead)
+    # Using lexer singleton instance private _get_token method (for the full project I will be using Lexer.tokenize_all() instead)
     if _lexer is None:
         raise RuntimeError("The lexer has not been initialized. Call globales() first.")
     return _lexer._get_token(imprime)
