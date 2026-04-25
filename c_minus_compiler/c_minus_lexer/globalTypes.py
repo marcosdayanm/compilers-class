@@ -79,24 +79,24 @@ class LexerState(IntEnum):
     COMMENT_EOF_FROM_STAR = 13
     IN_GENERIC_ERROR = 14
 
-    # final states
-    FINAL_ID = 15
-    FINAL_NUM_ERROR = 16
-    FINAL_INT = 17
-    FINAL_NEQ = 18
-    FINAL_EXCL_ERROR = 19
-    FINAL_EQ = 20
-    FINAL_ASSIGN = 21
-    FINAL_LTE = 22
-    FINAL_LT = 23
-    FINAL_GT = 24
-    FINAL_GTE = 25
-    FINAL_SIMPLE_SIGN = 26
-    FINAL_OVER = 27
-    FINAL_COMMENT = 28
-    FINAL_COMMENT_ERROR = 29
-    FINAL_EOF = 30
-    FINAL_GENERIC_ERROR = 31
+    # final states (1000's so if I introduce new states in the middle, I won't mess with the final state numbering)
+    FINAL_ID = 1000
+    FINAL_NUM_ERROR = 1001
+    FINAL_INT = 1002
+    FINAL_NEQ = 1003
+    FINAL_EXCL_ERROR = 1004
+    FINAL_EQ = 1005
+    FINAL_ASSIGN = 1006
+    FINAL_LTE = 1007
+    FINAL_LT = 1008
+    FINAL_GT = 1009
+    FINAL_GTE = 1010
+    FINAL_SIMPLE_SIGN = 1011
+    FINAL_OVER = 1012
+    FINAL_COMMENT = 1013
+    FINAL_COMMENT_ERROR = 1014
+    FINAL_EOF = 1015
+    FINAL_GENERIC_ERROR = 1016
 
 
 class ReservedWords(Enum):

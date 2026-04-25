@@ -1,5 +1,5 @@
 from globalTypes import *
-from scanner import *
+from Parser import * # el Parser importa el Scanner
 
 fileName = "prueba"
 f = open(fileName + '.tny', 'r')
@@ -9,9 +9,6 @@ progLong = len(program) 	# longitud original del programa
 program = program + '$' 	# agregar un caracter $ que represente EOF
 position = 0 			# posición del caracter actual del string
 
-# Para probar el scanner solito
-recibeScanner(program, position, progLong) # para mandar los globales
-
-token, tokenString, _ = getToken()
-while (token != TokenType.ENDFILE):
-    token, tokenString, _ = getToken()
+Error = False
+recibeParser(program, position, progLong) # para mandar los globales al parser
+syntaxTree, Error = parse(True) # con True imprime el árbol
