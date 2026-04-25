@@ -69,7 +69,7 @@ class RecursiveDescentParser:
     def parse(self, imprime: bool = True) -> ASTNode:
         """Entry point: primes the lookahead token, parses program, and prints the AST if requested."""
         self.advance()
-        ast = self.program()
+        ast = self._program()
         if self.current_token.token_type != TokenType.ENDFILE:
             self.syntax_error("Expected end of file.")
             self.synchronize(frozenset({TokenType.ENDFILE}))
@@ -120,6 +120,7 @@ class RecursiveDescentParser:
             raise BacktrackFailure(f"Expected {expected.name}.")
 
         self.syntax_error(f"Expected {expected.name} in {context}.")
+        # This part will help to recover from an error by looking for an expected token for the grammar that called match() at last
         sync_set = frozenset(set(recovery) | {expected, TokenType.ENDFILE})
         if self.current_token.token_type not in sync_set:
             self.synchronize(sync_set)
@@ -135,7 +136,7 @@ class RecursiveDescentParser:
         alternatives: list[Callable[[], ASTNode]],
         recovery: frozenset[TokenType],
     ) -> ASTNode:
-        """Try grammar alternatives from left to right, backtracking silently until one succeeds."""
+        """Try grammar alternatives from left to right, backtracking until one succeeds."""
         start = self.mark()
         for alternative in alternatives:
             self.reset(start)
@@ -172,49 +173,51 @@ class RecursiveDescentParser:
         self.errors.append(formatted)
         print(formatted)
 
-    def empty(self) -> ASTNode:
+    def _empty(self) -> ASTNode:
         """Build the explicit epsilon node used by productions with an empty alternative."""
         return ASTNode(SyntaxNodeType.EMPTY)
 
-    def program(self) -> ASTNode:
+    def _program(self) -> ASTNode:
         """program -> declaration_list"""
-        return ASTNode(SyntaxNodeType.PROGRAM, children=[self.declaration_list()])
+        return ASTNode(SyntaxNodeType.PROGRAM, children=[self._declaration_list()])
 
-    def declaration_list(self) -> ASTNode:
+    def _declaration_list(self) -> ASTNode:
         """declaration_list -> declaration declaration_list_prime"""
         return ASTNode(
             SyntaxNodeType.DECLARATION_LIST,
-            children=[self.declaration(), self.declaration_list_prime()],
+            children=[self._declaration(), self._declaration_list_prime()],
         )
 
-    def declaration_list_prime(self, fn_name="declaration_list_prime") -> ASTNode:
+    def _declaration_list_prime(self, fn_name="declaration_list_prime") -> ASTNode:
         """declaration_list_prime -> declaration declaration_list_prime | empty"""
         return self.choice(
             fn_name,
             [
-                lambda: ASTNode(SyntaxNodeType.DECLARATION_LIST_PRIME, children=[self.declaration(), self.declaration_list_prime()]),
-                lambda: ASTNode(SyntaxNodeType.DECLARATION_LIST_PRIME, children=[self.empty()]),
+                lambda: ASTNode(
+                    SyntaxNodeType.DECLARATION_LIST_PRIME, children=[self._declaration(), self._declaration_list_prime()]
+                ),
+                lambda: ASTNode(SyntaxNodeType.DECLARATION_LIST_PRIME, children=[self._empty()]),
             ],
             frozenset({TokenType.ENDFILE}),
         )
 
-    def declaration(self, fn_name="declaration") -> ASTNode:
+    def _declaration(self, fn_name="declaration") -> ASTNode:
         """declaration -> var_declaration | fun_declaration"""
         return ASTNode(
             SyntaxNodeType.DECLARATION,
             children=[
                 self.choice(
                     fn_name,
-                    [self.var_declaration, self.fun_declaration],
+                    [self._var_declaration, self._fun_declaration],
                     frozenset(set(DECLARATION_STARTS) | {TokenType.ENDFILE}),
                 )
             ],
         )
 
-    def var_declaration(self, fn_name="var_declaration") -> ASTNode:
+    def _var_declaration(self, fn_name="var_declaration") -> ASTNode:
         """var_declaration -> type_specifier ID SEMI | type_specifier ID LBRACKET NUM RBRACKET SEMI"""
-        def scalar_var_declaration() -> ASTNode:
-            type_node = self.type_specifier()
+        def _scalar_var_declaration() -> ASTNode:
+            type_node = self._type_specifier()
             identifier = self.match(TokenType.ID, fn_name, frozenset({TokenType.SEMI}))
             self.match(
                 TokenType.SEMI,
@@ -229,8 +232,8 @@ class RecursiveDescentParser:
                 column=identifier.column,
             )
 
-        def array_var_declaration() -> ASTNode:
-            type_node = self.type_specifier()
+        def _array_var_declaration() -> ASTNode:
+            type_node = self._type_specifier()
             identifier = self.match(TokenType.ID, fn_name, frozenset({TokenType.LBRACKET}))
             self.match(TokenType.LBRACKET, fn_name, frozenset({TokenType.NUM}))
             size = self.match(TokenType.NUM, fn_name, frozenset({TokenType.RBRACKET}))
@@ -250,33 +253,33 @@ class RecursiveDescentParser:
 
         return self.choice(
             "var_declaration",
-            [array_var_declaration, scalar_var_declaration],
+            [_array_var_declaration, _scalar_var_declaration],
             frozenset(set(DECLARATION_STARTS) | set(STATEMENT_STARTS) | {TokenType.RBRACE}),
         )
 
-    def type_specifier(self) -> ASTNode:
+    def _type_specifier(self) -> ASTNode:
         """type_specifier -> INT | VOID"""
-        def token_node(token_type: TokenType) -> ASTNode:
+        def _token_node(token_type: TokenType) -> ASTNode:
             token = self.match(token_type, "type_specifier", frozenset({TokenType.ID}))
             return ASTNode(SyntaxNodeType.TYPE_SPECIFIER, value=token.lexeme, line=token.line, column=token.column)
 
         return self.choice(
             "type_specifier",
             [
-                lambda: token_node(TokenType.INT),
-                lambda: token_node(TokenType.VOID),
+                lambda: _token_node(TokenType.INT),
+                lambda: _token_node(TokenType.VOID),
             ],
             frozenset({TokenType.ID, TokenType.ENDFILE}),
         )
 
-    def fun_declaration(self) -> ASTNode:
+    def _fun_declaration(self) -> ASTNode:
         """fun_declaration -> type_specifier ID LPAREN params RPAREN compound_stmt"""
-        type_node = self.type_specifier()
+        type_node = self._type_specifier()
         identifier = self.match(TokenType.ID, "fun_declaration", frozenset({TokenType.LPAREN}))
         self.match(TokenType.LPAREN, "fun_declaration", frozenset(set(TYPE_SPECIFIERS) | {TokenType.RPAREN}))
-        params_node = self.params()
+        params_node = self._params()
         self.match(TokenType.RPAREN, "fun_declaration", frozenset({TokenType.LBRACE}))
-        compound_node = self.compound_stmt()
+        compound_node = self._compound_stmt()
         return ASTNode(
             SyntaxNodeType.FUN_DECLARATION,
             value=identifier.lexeme,
@@ -285,7 +288,7 @@ class RecursiveDescentParser:
             column=identifier.column,
         )
 
-    def params(self) -> ASTNode:
+    def _params(self) -> ASTNode:
         """params -> param_list | VOID"""
         def void_params() -> ASTNode:
             void_token = self.match(TokenType.VOID, "params", frozenset({TokenType.RPAREN}))
@@ -294,34 +297,34 @@ class RecursiveDescentParser:
         return self.choice(
             "params",
             [
-                lambda: ASTNode(SyntaxNodeType.PARAMS, children=[self.param_list()]),
+                lambda: ASTNode(SyntaxNodeType.PARAMS, children=[self._param_list()]),
                 void_params,
             ],
             frozenset({TokenType.RPAREN, TokenType.ENDFILE}),
         )
 
-    def param_list(self) -> ASTNode:
+    def _param_list(self) -> ASTNode:
         """param_list -> param param_list_prime"""
-        return ASTNode(SyntaxNodeType.PARAM_LIST, children=[self.param(), self.param_list_prime()])
+        return ASTNode(SyntaxNodeType.PARAM_LIST, children=[self._param(), self._param_list_prime()])
 
-    def param_list_prime(self) -> ASTNode:
+    def _param_list_prime(self) -> ASTNode:
         """param_list_prime -> COMMA param param_list_prime | empty"""
         return self.choice(
             "param_list_prime",
             [
                 lambda: (
                     self.match(TokenType.COMMA, "param_list_prime", TYPE_SPECIFIERS), 
-                    ASTNode(SyntaxNodeType.PARAM_LIST_PRIME, children=[self.param(), self.param_list_prime()],
+                    ASTNode(SyntaxNodeType.PARAM_LIST_PRIME, children=[self._param(), self._param_list_prime()],
                 ))[-1],
-                lambda: ASTNode(SyntaxNodeType.PARAM_LIST_PRIME, children=[self.empty()]),
+                lambda: ASTNode(SyntaxNodeType.PARAM_LIST_PRIME, children=[self._empty()]),
             ],
             frozenset({TokenType.RPAREN}),
         )
 
-    def param(self) -> ASTNode:
+    def _param(self) -> ASTNode:
         """param -> type_specifier ID | type_specifier ID LBRACKET RBRACKET"""
-        def scalar_param() -> ASTNode:
-            type_node = self.type_specifier()
+        def _scalar_param() -> ASTNode:
+            type_node = self._type_specifier()
             identifier = self.match(TokenType.ID, "param", frozenset({TokenType.COMMA, TokenType.RPAREN}))
             return ASTNode(
                 SyntaxNodeType.PARAM,
@@ -331,8 +334,8 @@ class RecursiveDescentParser:
                 column=identifier.column,
             )
 
-        def array_param() -> ASTNode:
-            type_node = self.type_specifier()
+        def _array_param() -> ASTNode:
+            type_node = self._type_specifier()
             identifier = self.match(TokenType.ID, "param", frozenset({TokenType.LBRACKET}))
             self.match(TokenType.LBRACKET, "param", frozenset({TokenType.RBRACKET}))
             self.match(TokenType.RBRACKET, "param", frozenset({TokenType.COMMA, TokenType.RPAREN}))
@@ -346,19 +349,19 @@ class RecursiveDescentParser:
 
         return self.choice(
             "param",
-            [array_param, scalar_param],
+            [_array_param, _scalar_param],
             frozenset({TokenType.COMMA, TokenType.RPAREN}),
         )
 
-    def compound_stmt(self) -> ASTNode:
+    def _compound_stmt(self) -> ASTNode:
         """compound_stmt -> LBRACE local_declarations statement_list RBRACE"""
         left = self.match(
             TokenType.LBRACE,
             "compound_stmt",
             frozenset(set(DECLARATION_STARTS) | set(STATEMENT_STARTS) | {TokenType.RBRACE}),
         )
-        local_node = self.local_declarations()
-        statement_node = self.statement_list()
+        local_node = self._local_declarations()
+        statement_node = self._statement_list()
         self.match(
             TokenType.RBRACE,
             "compound_stmt",
@@ -366,88 +369,82 @@ class RecursiveDescentParser:
         )
         return ASTNode(SyntaxNodeType.COMPOUND_STMT, children=[local_node, statement_node], line=left.line, column=left.column)
 
-    def local_declarations(self) -> ASTNode:
+    def _local_declarations(self) -> ASTNode:
         """local_declarations -> local_declarations_prime"""
-        return ASTNode(SyntaxNodeType.LOCAL_DECLARATIONS, children=[self.local_declarations_prime()])
+        return ASTNode(SyntaxNodeType.LOCAL_DECLARATIONS, children=[self._local_declarations_prime()])
 
-    def local_declarations_prime(self) -> ASTNode:
+    def _local_declarations_prime(self) -> ASTNode:
         """local_declarations_prime -> var_declaration local_declarations_prime | empty"""
-        def var_declaration_tail() -> ASTNode:
-            return ASTNode(
-                SyntaxNodeType.LOCAL_DECLARATIONS_PRIME,
-                children=[self.var_declaration(), self.local_declarations_prime()],
-            )
-
         return self.choice(
             "local_declarations_prime",
             [
-                var_declaration_tail,
-                lambda: ASTNode(SyntaxNodeType.LOCAL_DECLARATIONS_PRIME, children=[self.empty()]),
+                lambda: ASTNode(
+                    SyntaxNodeType.LOCAL_DECLARATIONS_PRIME,
+                    children=[self._var_declaration(), self._local_declarations_prime()],
+                ),
+                lambda: ASTNode(SyntaxNodeType.LOCAL_DECLARATIONS_PRIME, children=[self._empty()]),
             ],
             frozenset(set(STATEMENT_STARTS) | {TokenType.RBRACE}),
         )
 
-    def statement_list(self) -> ASTNode:
+    def _statement_list(self) -> ASTNode:
         """statement_list -> statement_list_prime"""
-        return ASTNode(SyntaxNodeType.STATEMENT_LIST, children=[self.statement_list_prime()])
+        return ASTNode(SyntaxNodeType.STATEMENT_LIST, children=[self._statement_list_prime()])
 
-    def statement_list_prime(self) -> ASTNode:
+    def _statement_list_prime(self) -> ASTNode:
         """statement_list_prime -> statement statement_list_prime | empty"""
-        def statement_tail() -> ASTNode:
-            return ASTNode(
-                SyntaxNodeType.STATEMENT_LIST_PRIME,
-                children=[self.statement(), self.statement_list_prime()],
-            )
-
         return self.choice(
             "statement_list_prime",
             [
-                statement_tail,
-                lambda: ASTNode(SyntaxNodeType.STATEMENT_LIST_PRIME, children=[self.empty()]),
+                lambda: ASTNode(
+                    SyntaxNodeType.STATEMENT_LIST_PRIME,
+                    children=[self._statement(), self._statement_list_prime()],
+                ),
+                lambda: ASTNode(SyntaxNodeType.STATEMENT_LIST_PRIME, children=[self._empty()]),
             ],
             frozenset({TokenType.RBRACE, TokenType.ENDFILE}),
         )
 
-    def statement(self) -> ASTNode:
+    def _statement(self, fn_name="statement") -> ASTNode:
         """statement -> expression_stmt | compound_stmt | selection_stmt | iteration_stmt | return_stmt"""
         return ASTNode(
             SyntaxNodeType.STATEMENT,
             children=[
                 self.choice(
-                    "statement",
-                    [self.expression_stmt, self.compound_stmt, self.selection_stmt, self.iteration_stmt, self.return_stmt],
+                    fn_name,
+                    [self._expression_stmt, self._compound_stmt, self._selection_stmt, self._iteration_stmt, self._return_stmt],
                     frozenset(set(STATEMENT_STARTS) | {TokenType.RBRACE, TokenType.ENDFILE}),
                 )
             ],
         )
 
-    def expression_stmt(self) -> ASTNode:
+    def _expression_stmt(self, fn_name="expression_stmt") -> ASTNode:
         """expression_stmt -> expression SEMI | SEMI"""
         def expression_semicolon() -> ASTNode:
-            expression_node = self.expression()
-            self.match(TokenType.SEMI, "expression_stmt", frozenset(set(STATEMENT_STARTS) | {TokenType.RBRACE}))
+            expression_node = self._expression()
+            self.match(TokenType.SEMI, fn_name, frozenset(set(STATEMENT_STARTS) | {TokenType.RBRACE}))
             return ASTNode(SyntaxNodeType.EXPRESSION_STMT, children=[expression_node])
 
         def semicolon_only() -> ASTNode:
-            semi = self.match(TokenType.SEMI, "expression_stmt", STATEMENT_STARTS | {TokenType.RBRACE})
+            semi = self.match(TokenType.SEMI, fn_name, STATEMENT_STARTS | {TokenType.RBRACE})
             return ASTNode(SyntaxNodeType.EXPRESSION_STMT, value=semi.lexeme, line=semi.line, column=semi.column)
 
         return self.choice(
-            "expression_stmt",
+            fn_name,
             [expression_semicolon, semicolon_only],
             frozenset(set(STATEMENT_STARTS) | {TokenType.RBRACE}),
         )
 
-    def selection_stmt(self) -> ASTNode:
+    def _selection_stmt(self, fn_name="selection_stmt") -> ASTNode:
         """selection_stmt -> IF LPAREN expression RPAREN statement | IF LPAREN expression RPAREN statement ELSE statement"""
-        def if_else_statement() -> ASTNode:
-            if_token = self.match(TokenType.IF, "selection_stmt", frozenset({TokenType.LPAREN}))
-            self.match(TokenType.LPAREN, "selection_stmt", EXPRESSION_STARTS)
-            condition = self.expression()
-            self.match(TokenType.RPAREN, "selection_stmt", STATEMENT_STARTS)
-            then_statement = self.statement()
-            self.match(TokenType.ELSE, "selection_stmt", STATEMENT_STARTS)
-            else_statement = self.statement()
+        def _if_else_statement() -> ASTNode:
+            if_token = self.match(TokenType.IF, fn_name, frozenset({TokenType.LPAREN}))
+            self.match(TokenType.LPAREN, fn_name, EXPRESSION_STARTS)
+            condition = self._expression()
+            self.match(TokenType.RPAREN, fn_name, STATEMENT_STARTS)
+            then_statement = self._statement(fn_name)
+            self.match(TokenType.ELSE, fn_name, STATEMENT_STARTS)
+            else_statement = self._statement(fn_name)
             return ASTNode(
                 SyntaxNodeType.SELECTION_STMT,
                 children=[condition, then_statement, else_statement],
@@ -455,12 +452,12 @@ class RecursiveDescentParser:
                 column=if_token.column,
             )
 
-        def if_statement() -> ASTNode:
-            if_token = self.match(TokenType.IF, "selection_stmt", frozenset({TokenType.LPAREN}))
-            self.match(TokenType.LPAREN, "selection_stmt", EXPRESSION_STARTS)
-            condition = self.expression()
-            self.match(TokenType.RPAREN, "selection_stmt", STATEMENT_STARTS)
-            then_statement = self.statement()
+        def _if_statement() -> ASTNode:
+            if_token = self.match(TokenType.IF, fn_name, frozenset({TokenType.LPAREN}))
+            self.match(TokenType.LPAREN, fn_name, EXPRESSION_STARTS)
+            condition = self._expression()
+            self.match(TokenType.RPAREN, fn_name, STATEMENT_STARTS)
+            then_statement = self._statement(fn_name)
             return ASTNode(
                 SyntaxNodeType.SELECTION_STMT,
                 children=[condition, then_statement],
@@ -469,48 +466,48 @@ class RecursiveDescentParser:
             )
 
         return self.choice(
-            "selection_stmt",
+            fn_name,
             [
-                if_else_statement,
-                if_statement,
+                _if_else_statement,
+                _if_statement,
             ],
             frozenset(set(STATEMENT_STARTS) | {TokenType.RBRACE, TokenType.ENDFILE}),
         )
 
-    def iteration_stmt(self) -> ASTNode:
+    def _iteration_stmt(self, fn_name="iteration_stmt") -> ASTNode:
         """iteration_stmt -> WHILE LPAREN expression RPAREN statement"""
-        while_token = self.match(TokenType.WHILE, "iteration_stmt", frozenset({TokenType.LPAREN}))
-        self.match(TokenType.LPAREN, "iteration_stmt", EXPRESSION_STARTS)
-        condition = self.expression()
-        self.match(TokenType.RPAREN, "iteration_stmt", STATEMENT_STARTS)
-        body = self.statement()
+        while_token = self.match(TokenType.WHILE, fn_name, frozenset({TokenType.LPAREN}))
+        self.match(TokenType.LPAREN, fn_name, EXPRESSION_STARTS)
+        condition = self._expression()
+        self.match(TokenType.RPAREN, fn_name, STATEMENT_STARTS)
+        body = self._statement(fn_name)
         return ASTNode(SyntaxNodeType.ITERATION_STMT, children=[condition, body], line=while_token.line, column=while_token.column)
 
-    def return_stmt(self) -> ASTNode:
+    def _return_stmt(self, fn_name="return_stmt") -> ASTNode:
         """return_stmt -> RETURN SEMI | RETURN expression SEMI"""
         def return_expression() -> ASTNode:
-            return_token = self.match(TokenType.RETURN, "return_stmt", frozenset(set(EXPRESSION_STARTS) | {TokenType.SEMI}))
-            expression_node = self.expression()
-            self.match(TokenType.SEMI, "return_stmt", frozenset(set(STATEMENT_STARTS) | {TokenType.RBRACE}))
+            return_token = self.match(TokenType.RETURN, fn_name, frozenset(set(EXPRESSION_STARTS) | {TokenType.SEMI}))
+            expression_node = self._expression()
+            self.match(TokenType.SEMI, fn_name, frozenset(set(STATEMENT_STARTS) | {TokenType.RBRACE}))
             return ASTNode(SyntaxNodeType.RETURN_STMT, children=[expression_node], line=return_token.line, column=return_token.column)
 
         def return_semicolon() -> ASTNode:
-            return_token = self.match(TokenType.RETURN, "return_stmt", frozenset({TokenType.SEMI}))
-            self.match(TokenType.SEMI, "return_stmt", STATEMENT_STARTS | {TokenType.RBRACE})
+            return_token = self.match(TokenType.RETURN, fn_name, frozenset({TokenType.SEMI}))
+            self.match(TokenType.SEMI, fn_name, STATEMENT_STARTS | {TokenType.RBRACE})
             return ASTNode(SyntaxNodeType.RETURN_STMT, line=return_token.line, column=return_token.column)
 
         return self.choice(
-            "return_stmt",
+            fn_name,
             [return_expression, return_semicolon],
             frozenset(set(STATEMENT_STARTS) | {TokenType.RBRACE}),
         )
 
-    def expression(self) -> ASTNode:
+    def _expression(self, fn_name="expression") -> ASTNode:
         """expression -> var ASSIGN expression | simple_expression"""
         def assignment_expression() -> ASTNode:
-            var_node = self.var()
-            assign_token = self.match(TokenType.ASSIGN, "expression", EXPRESSION_STARTS)
-            expression_node = self.expression()
+            var_node = self._var()
+            assign_token = self.match(TokenType.ASSIGN, fn_name, EXPRESSION_STARTS)
+            expression_node = self._expression(fn_name)
             return ASTNode(
                 SyntaxNodeType.EXPRESSION,
                 value=assign_token.lexeme,
@@ -520,57 +517,57 @@ class RecursiveDescentParser:
             )
 
         return self.choice(
-            "expression",
+            fn_name,
             [
                 assignment_expression,
-                lambda: ASTNode(SyntaxNodeType.EXPRESSION, children=[self.simple_expression()]),
+                lambda: ASTNode(SyntaxNodeType.EXPRESSION, children=[self._simple_expression()]),
             ],
             frozenset({TokenType.SEMI, TokenType.COMMA, TokenType.RPAREN, TokenType.RBRACKET}),
         )
 
-    def var(self) -> ASTNode:
+    def _var(self, fn_name="var") -> ASTNode:
         """var -> ID | ID LBRACKET expression RBRACKET"""
         def scalar_var() -> ASTNode:
             identifier = self.match(
                 TokenType.ID,
-                "var",
+                fn_name,
                 frozenset(set(ADDOPS) | set(MULOPS) | set(RELOPS) | {TokenType.ASSIGN, TokenType.SEMI, TokenType.COMMA, TokenType.RPAREN, TokenType.RBRACKET}),
             )
             return ASTNode(SyntaxNodeType.VAR, value=identifier.lexeme, line=identifier.line, column=identifier.column)
 
         def array_var() -> ASTNode:
-            identifier = self.match(TokenType.ID, "var", frozenset({TokenType.LBRACKET}))
-            self.match(TokenType.LBRACKET, "var", EXPRESSION_STARTS)
-            index = self.expression()
+            identifier = self.match(TokenType.ID, fn_name, frozenset({TokenType.LBRACKET}))
+            self.match(TokenType.LBRACKET, fn_name, EXPRESSION_STARTS)
+            index = self._expression(fn_name)
             self.match(
                 TokenType.RBRACKET,
-                "var",
+                fn_name,
                 frozenset(set(ADDOPS) | set(MULOPS) | set(RELOPS) | {TokenType.ASSIGN, TokenType.SEMI, TokenType.COMMA, TokenType.RPAREN, TokenType.RBRACKET}),
             )
             return ASTNode(SyntaxNodeType.VAR, value=f"{identifier.lexeme}[]", children=[index], line=identifier.line, column=identifier.column)
 
         return self.choice(
-            "var",
+            fn_name,
             [array_var, scalar_var],
             frozenset(set(ADDOPS) | set(MULOPS) | set(RELOPS) | {TokenType.ASSIGN, TokenType.SEMI, TokenType.COMMA, TokenType.RPAREN, TokenType.RBRACKET}),
         )
 
-    def simple_expression(self) -> ASTNode:
+    def _simple_expression(self) -> ASTNode:
         """simple_expression -> additive_expression simple_expression_prime"""
-        return ASTNode(SyntaxNodeType.SIMPLE_EXPRESSION, children=[self.additive_expression(), self.simple_expression_prime()])
+        return ASTNode(SyntaxNodeType.SIMPLE_EXPRESSION, children=[self._additive_expression(), self._simple_expression_prime()])
 
-    def simple_expression_prime(self) -> ASTNode:
+    def _simple_expression_prime(self) -> ASTNode:
         """simple_expression_prime -> relop additive_expression | empty"""
         return self.choice(
             "simple_expression_prime",
             [
-                lambda: ASTNode(SyntaxNodeType.SIMPLE_EXPRESSION_PRIME, children=[self.relop(), self.additive_expression()]),
-                lambda: ASTNode(SyntaxNodeType.SIMPLE_EXPRESSION_PRIME, children=[self.empty()]),
+                lambda: ASTNode(SyntaxNodeType.SIMPLE_EXPRESSION_PRIME, children=[self._relop(), self._additive_expression()]),
+                lambda: ASTNode(SyntaxNodeType.SIMPLE_EXPRESSION_PRIME, children=[self._empty()]),
             ],
             frozenset({TokenType.SEMI, TokenType.COMMA, TokenType.RPAREN, TokenType.RBRACKET}),
         )
 
-    def relop(self, fn_name="relop") -> ASTNode:
+    def _relop(self, fn_name="relop") -> ASTNode:
         """relop -> LTE | LT | GT | GTE | EQ | NEQ"""
         return self.choice(
             fn_name,
@@ -585,22 +582,22 @@ class RecursiveDescentParser:
             frozenset(EXPRESSION_STARTS),
         )
 
-    def additive_expression(self) -> ASTNode:
+    def _additive_expression(self) -> ASTNode:
         """additive_expression -> term additive_expression_prime"""
-        return ASTNode(SyntaxNodeType.ADDITIVE_EXPRESSION, children=[self.term(), self.additive_expression_prime()])
+        return ASTNode(SyntaxNodeType.ADDITIVE_EXPRESSION, children=[self._term(), self._additive_expression_prime()])
 
-    def additive_expression_prime(self) -> ASTNode:
+    def _additive_expression_prime(self) -> ASTNode:
         """additive_expression_prime -> addop term additive_expression_prime | empty"""
         return self.choice(
             "additive_expression_prime",
             [
-                lambda:  ASTNode(SyntaxNodeType.ADDITIVE_EXPRESSION_PRIME, children=[self.addop(), self.term(), self.additive_expression_prime()]),
-                lambda: ASTNode(SyntaxNodeType.ADDITIVE_EXPRESSION_PRIME, children=[self.empty()]),
+                lambda:  ASTNode(SyntaxNodeType.ADDITIVE_EXPRESSION_PRIME, children=[self._addop(), self._term(), self._additive_expression_prime()]),
+                lambda: ASTNode(SyntaxNodeType.ADDITIVE_EXPRESSION_PRIME, children=[self._empty()]),
             ],
             frozenset(set(RELOPS) | {TokenType.SEMI, TokenType.COMMA, TokenType.RPAREN, TokenType.RBRACKET}),
         )
 
-    def addop(self, fn_name="addop") -> ASTNode:
+    def _addop(self, fn_name="addop") -> ASTNode:
         """addop -> PLUS | MINUS"""
         return self.choice(
             fn_name,
@@ -611,28 +608,28 @@ class RecursiveDescentParser:
             frozenset(EXPRESSION_STARTS),
         )
 
-    def term(self) -> ASTNode:
+    def _term(self) -> ASTNode:
         """term -> factor term_prime"""
-        return ASTNode(SyntaxNodeType.TERM, children=[self.factor(), self.term_prime()])
+        return ASTNode(SyntaxNodeType.TERM, children=[self._factor(), self._term_prime()])
 
-    def term_prime(self) -> ASTNode:
+    def _term_prime(self) -> ASTNode:
         """term_prime -> mulop factor term_prime | empty"""
         def mulop_tail() -> ASTNode:
             return ASTNode(
                 SyntaxNodeType.TERM_PRIME,
-                children=[self.mulop(), self.factor(), self.term_prime()],
+                children=[self._mulop(), self._factor(), self._term_prime()],
             )
 
         return self.choice(
             "term_prime",
             [
-                lambda: ASTNode(SyntaxNodeType.TERM_PRIME, children=[self.mulop(), self.factor(), self.term_prime()]),
-                lambda: ASTNode(SyntaxNodeType.TERM_PRIME, children=[self.empty()]),
+                lambda: ASTNode(SyntaxNodeType.TERM_PRIME, children=[self._mulop(), self._factor(), self._term_prime()]),
+                lambda: ASTNode(SyntaxNodeType.TERM_PRIME, children=[self._empty()]),
             ],
             frozenset(set(ADDOPS) | set(RELOPS) | {TokenType.SEMI, TokenType.COMMA, TokenType.RPAREN, TokenType.RBRACKET}),
         )
 
-    def mulop(self) -> ASTNode:
+    def _mulop(self) -> ASTNode:
         """mulop -> TIMES | OVER"""
         return self.choice(
             "mulop",
@@ -643,11 +640,11 @@ class RecursiveDescentParser:
             frozenset(EXPRESSION_STARTS),
         )
 
-    def factor(self) -> ASTNode:
+    def _factor(self) -> ASTNode:
         """factor -> LPAREN expression RPAREN | var | call | NUM"""
         def grouped_expression() -> ASTNode:
             left = self.match(TokenType.LPAREN, "factor", EXPRESSION_STARTS)
-            expression_node = self.expression()
+            expression_node = self._expression()
             self.match(
                 TokenType.RPAREN,
                 "factor",
@@ -663,18 +660,18 @@ class RecursiveDescentParser:
             "factor",
             [
                 grouped_expression,
-                lambda: ASTNode(SyntaxNodeType.FACTOR, children=[self.call()]),
-                lambda: ASTNode(SyntaxNodeType.FACTOR, children=[self.var()]),
+                lambda: ASTNode(SyntaxNodeType.FACTOR, children=[self._call()]),
+                lambda: ASTNode(SyntaxNodeType.FACTOR, children=[self._var()]),
                 number_factor,
             ],
             frozenset(set(ADDOPS) | set(MULOPS) | set(RELOPS) | {TokenType.SEMI, TokenType.COMMA, TokenType.RPAREN, TokenType.RBRACKET}),
         )
 
-    def call(self) -> ASTNode:
+    def _call(self) -> ASTNode:
         """call -> ID LPAREN args RPAREN"""
         identifier = self.match(TokenType.ID, "call", frozenset({TokenType.LPAREN}))
         self.match(TokenType.LPAREN, "call", frozenset(set(EXPRESSION_STARTS) | {TokenType.RPAREN}))
-        args_node = self.args()
+        args_node = self._args()
         self.match(
             TokenType.RPAREN,
             "call",
@@ -682,35 +679,34 @@ class RecursiveDescentParser:
         )
         return ASTNode(SyntaxNodeType.CALL, value=identifier.lexeme, children=[args_node], line=identifier.line, column=identifier.column)
 
-    def args(self) -> ASTNode:
+    def _args(self) -> ASTNode:
         """args -> arg_list | empty"""
         return self.choice(
             "args",
             [
-                lambda: ASTNode(SyntaxNodeType.ARGS, children=[self.arg_list()]),
-                lambda: ASTNode(SyntaxNodeType.ARGS, children=[self.empty()]),
+                lambda: ASTNode(SyntaxNodeType.ARGS, children=[self._arg_list()]),
+                lambda: ASTNode(SyntaxNodeType.ARGS, children=[self._empty()]),
             ],
             frozenset({TokenType.RPAREN}),
         )
 
-    def arg_list(self) -> ASTNode:
+    def _arg_list(self) -> ASTNode:
         """arg_list -> expression arg_list_prime"""
-        return ASTNode(SyntaxNodeType.ARG_LIST, children=[self.expression(), self.arg_list_prime()])
+        return ASTNode(SyntaxNodeType.ARG_LIST, children=[self._expression(), self._arg_list_prime()])
 
-    def arg_list_prime(self) -> ASTNode:
+    def _arg_list_prime(self) -> ASTNode:
         """arg_list_prime -> COMMA expression arg_list_prime | empty"""
-        def comma_expression_tail() -> ASTNode:
-            self.match(TokenType.COMMA, "arg_list_prime", EXPRESSION_STARTS)
-            return ASTNode(
-                SyntaxNodeType.ARG_LIST_PRIME,
-                children=[self.expression(), self.arg_list_prime()],
-            )
-
         return self.choice(
             "arg_list_prime",
             [
-                comma_expression_tail,
-                lambda: ASTNode(SyntaxNodeType.ARG_LIST_PRIME, children=[self.empty()]),
+                lambda: (
+                    self.match(TokenType.COMMA, "arg_list_prime", EXPRESSION_STARTS),
+                    ASTNode(
+                        SyntaxNodeType.ARG_LIST_PRIME,
+                        children=[self._expression(), self._arg_list_prime()],
+                    )
+                )[-1],
+                lambda: ASTNode(SyntaxNodeType.ARG_LIST_PRIME, children=[self._empty()]),
             ],
             frozenset({TokenType.RPAREN}),
         )
