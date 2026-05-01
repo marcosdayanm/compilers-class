@@ -9,7 +9,7 @@ CURRENT_DIR = os.path.dirname(__file__)
 PROJECT_DIR = os.path.dirname(CURRENT_DIR)
 sys.path.insert(0, PROJECT_DIR)
 
-from globalTypes import SyntaxNodeType
+from globalTypes import SyntaxNodeType, TokenType
 from Parser import getParserErrors, globales, parser
 
 
@@ -79,6 +79,47 @@ class ParserTests(unittest.TestCase):
 
         self.assertEqual(ast.node_type, SyntaxNodeType.PROGRAM)
         self.assertGreaterEqual(len(getParserErrors()), 1)
+
+    def test_prints_terminal_tree_by_default(self):
+        load_program(
+            """
+            int main(void)
+            {
+                int x;
+                x = 1;
+                return x;
+            }
+            """
+        )
+
+        output = StringIO()
+        with redirect_stdout(output):
+            ast = parser(imprime=True)
+
+        lines = output.getvalue().strip().splitlines()
+        stripped_lines = [line.strip() for line in lines]
+        self.assertEqual(
+            stripped_lines,
+            [
+                "INT:int",
+                "ID:main",
+                "VOID:void",
+                "INT:int",
+                "ID:x",
+                "ID:x",
+                "ASSIGN:=",
+                "NUM:1",
+                "RETURN:return",
+                "ID:x",
+            ],
+        )
+        self.assertNotIn("factor: 1", lines)
+        self.assertTrue(any(line.startswith("                              NUM:1") for line in lines))
+
+        terminal_nodes = ast.terminals()
+        self.assertTrue(all(node.is_terminal for node in terminal_nodes))
+        self.assertEqual(terminal_nodes[0].node_type, TokenType.INT)
+        self.assertNotIn(TokenType.SEMI, [node.node_type for node in ast.abstract_terminals()])
 
 
 if __name__ == "__main__":

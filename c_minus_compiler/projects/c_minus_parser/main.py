@@ -3,7 +3,7 @@ import sys
 from Parser import globales, parser
 
 
-def run_parser(filename="sample.c-", imprime=True):
+def run_parser(filename="sample.c-", imprime=True, terminales=True):
     with open(filename, "r", encoding="utf-8") as file:
         programa = file.read()
 
@@ -12,12 +12,16 @@ def run_parser(filename="sample.c-", imprime=True):
     posicion = 0
 
     globales(programa, posicion, progLong)
-    return parser(imprime)
+    return parser(imprime, terminales)
 
 
 def main():
-    filename = sys.argv[1] if len(sys.argv) > 1 else "sample.c-"
-    run_parser(filename)
+    args = sys.argv[1:]
+    # terminales = "--full" not in args
+    terminales = False
+    filenames = [arg for arg in args if arg != "--full"]
+    filename = filenames[0] if filenames else "sample.c-"
+    run_parser(filename, terminales=terminales)
 
 
 if __name__ == "__main__":
