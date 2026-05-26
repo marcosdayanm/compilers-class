@@ -1,0 +1,51 @@
+/* Sample C- source to exercise the lexer. */
+
+int max(int a, int b)
+{
+    if (a >= b)
+        return a;
+    else
+        return b;
+}
+
+void helper(void)
+{
+    int values[10];
+    int x;
+    int y;
+
+    x = input();
+    y = input();
+
+    values[0] = x + y;
+    values[1] = x - y;
+    values[2] = x * y;
+    values[3] = x / 2;
+
+    if (x < y)
+        output(values[0]);
+    if (x <= y)
+        output(values[1]);
+    if (x > y)
+        output(values[2]);
+    if (x >= y)
+        output(values[3]);
+    if (x == y)
+        output(max(x, y));
+    if (x != y)
+        output(max(x, y));
+
+    /* Regular comment: [], {}, (), ;, and operators are ignored here. */
+    while (x > 0)
+        x = x - 1;
+}
+
+void main(void)
+{
+    int broken;
+
+    helper();
+    /*broken = 3abc;*/   /* Intentional lexical error: malformed integer. */
+    /*output(broken);*/  /* The lexer should recover and continue from here. */
+    return;
+}

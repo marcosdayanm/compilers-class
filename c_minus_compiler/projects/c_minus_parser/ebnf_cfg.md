@@ -1,4 +1,6 @@
-```json
+### CFG en EBNF sin recursión por la izquierda
+
+```
 1. program -> declaration_list
 
 2. declaration_list -> declaration declaration_list_prime
